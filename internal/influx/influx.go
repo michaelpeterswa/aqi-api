@@ -20,9 +20,9 @@ var (
 	ErrUnknownError              = fmt.Errorf("unknown error")
 )
 
-func InitInflux(token string) *InfluxConn {
+func InitInflux(endpoint string, token string) *InfluxConn {
 	// Create a new client using an InfluxDB server base URL and an authentication token
-	client := influxdb2.NewClient("http://10.0.0.10:8086", token)
+	client := influxdb2.NewClient(endpoint, token)
 	queryClient := client.QueryAPI("main")
 	return &InfluxConn{
 		Conn:        client,

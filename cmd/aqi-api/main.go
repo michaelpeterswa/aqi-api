@@ -20,6 +20,11 @@ func main() {
 	}
 	logger.Info("aqi-api init...")
 
+	influxEndpoint := os.Getenv("INFLUX_TOKEN")
+	if influxToken == "" {
+		logger.Fatal("INFLUX_TOKEN not set")
+	}
+
 	influxToken := os.Getenv("INFLUX_TOKEN")
 	if influxToken == "" {
 		logger.Fatal("INFLUX_TOKEN not set")
