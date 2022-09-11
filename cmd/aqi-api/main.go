@@ -20,8 +20,8 @@ func main() {
 	}
 	logger.Info("aqi-api init...")
 
-	influxEndpoint := os.Getenv("INFLUX_TOKEN")
-	if influxToken == "" {
+	influxEndpoint := os.Getenv("INFLUX_ENDPOINT")
+	if influxEndpoint == "" {
 		logger.Fatal("INFLUX_TOKEN not set")
 	}
 
@@ -30,7 +30,7 @@ func main() {
 		logger.Fatal("INFLUX_TOKEN not set")
 	}
 
-	client := influx.InitInflux(influxToken)
+	client := influx.InitInflux(influxEndpoint, influxToken)
 	aqiHandler := handlers.NewAQIHandler(logger, client)
 
 	r := mux.NewRouter()
