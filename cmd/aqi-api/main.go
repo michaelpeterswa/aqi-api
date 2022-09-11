@@ -22,7 +22,7 @@ func main() {
 
 	influxEndpoint := os.Getenv("INFLUX_ENDPOINT")
 	if influxEndpoint == "" {
-		logger.Fatal("INFLUX_TOKEN not set")
+		logger.Fatal("INFLUX_ENDPOINT not set")
 	}
 
 	influxToken := os.Getenv("INFLUX_TOKEN")
