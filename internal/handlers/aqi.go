@@ -36,8 +36,6 @@ func NewAQIHandler(logger *zap.Logger, ic *influx.InfluxConn) *AQIHandler {
 }
 
 func (h *AQIHandler) GetAQI(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-
 	pm25s, err := h.InfluxClient.GetPM25S(r.Context())
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -92,7 +90,8 @@ func (h *AQIHandler) GetAQI(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 		}
 	}
-
+	w.WriteHeader(http.StatusOK)
+	
 	err = json.NewEncoder(w).Encode(AQIResponse{PrimaryPollutant: primaryPollutant, AQI: aqi, Level: designation})
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -100,8 +99,6 @@ func (h *AQIHandler) GetAQI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AQIHandler) GetPM25s(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-
 	pm25s, err := h.InfluxClient.GetPM25S(r.Context())
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -111,6 +108,7 @@ func (h *AQIHandler) GetPM25s(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	w.WriteHeader(http.StatusOK)
 	err = json.NewEncoder(w).Encode(PollutantResponse{Pollutant: "PM2.5", UgPerM3: pm25s})
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -118,8 +116,6 @@ func (h *AQIHandler) GetPM25s(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AQIHandler) GetPM100s(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-
 	pm100s, err := h.InfluxClient.GetPM100S(r.Context())
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -129,6 +125,7 @@ func (h *AQIHandler) GetPM100s(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	w.WriteHeader(http.StatusOK)
 	err = json.NewEncoder(w).Encode(PollutantResponse{Pollutant: "PM10.0", UgPerM3: pm100s})
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
