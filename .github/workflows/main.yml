@@ -1,56 +1,60 @@
 ---
-on: [push, pull_request]  # yamllint disable-line rule:truthy
+on: [push, pull_request] # yamllint disable-line rule:truthy
 name: main
 jobs:
   commitlint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v1
+      - uses: actions/setup-node@v4
         with:
-          node-version: 14
+          node-version: 20
       - run: npm install --save-dev @commitlint/{config-conventional,cli}
       - run: npx commitlint --from=${{ github.event.pull_request.base.sha }}
   golangci-lint:
     strategy:
       matrix:
-        go-version: [1.18.x]
-        os: [ubuntu-latest, macos-latest]
+        go-version: [1.22.x]
+        os: [ubuntu-latest]
     name: lint
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v2
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
         with:
-          version: v1.46
+          go-version: ${{ matrix.go-version }}
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
   yamllint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: yaml-lint
         uses: ibiqlik/action-yamllint@v3
   hadolint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: hadolint/hadolint-action@v2.0.0
+      - uses: actions/checkout@v4
+      - uses: hadolint/hadolint-action@v3.1.0
         with:
           dockerfile: Dockerfile
   test:
     strategy:
       matrix:
-        go-version: [1.18.x]
-        os: [ubuntu-latest, macos-latest]
+        go-version: [1.22.x]
+        os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Install Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go-version }}
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Test
         run: go test ./...

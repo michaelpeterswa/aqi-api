@@ -1,37 +1,39 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"os"
 
 	"github.com/gorilla/mux"
 	"github.com/michaelpeterswa/aqi-api/internal/handlers"
-	"github.com/michaelpeterswa/aqi-api/internal/influx"
 	"github.com/michaelpeterswa/aqi-api/internal/logging"
+	"github.com/michaelpeterswa/aqi-api/internal/timescale"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 )
 
 func main() {
+	ctx := context.Background()
+
 	logger, err := logging.InitZap()
 	if err != nil {
 		log.Panicf("could not acquire zap logger: %s", err.Error())
 	}
 	logger.Info("aqi-api init...")
 
-	influxEndpoint := os.Getenv("INFLUX_ENDPOINT")
-	if influxEndpoint == "" {
-		logger.Fatal("INFLUX_ENDPOINT not set")
+	timescaleDSN := os.Getenv("TIMESCALE_DSN")
+	if timescaleDSN == "" {
+		logger.Fatal("TIMESCALE_ENDPOINT is required")
 	}
 
-	influxToken := os.Getenv("INFLUX_TOKEN")
-	if influxToken == "" {
-		logger.Fatal("INFLUX_TOKEN not set")
+	timescaleClient, timescaleCloser, err := timescale.InitTimescale(ctx, timescaleDSN)
+	if err != nil {
+		logger.Fatal("could not initialize timescale client", zap.Error(err))
 	}
-
-	client := influx.InitInflux(influxEndpoint, influxToken)
-	aqiHandler := handlers.NewAQIHandler(logger, client)
+	defer timescaleCloser()
+	aqiHandler := handlers.NewAQIHandler(logger, timescaleClient)
 
 	r := mux.NewRouter()
 	apiRouter := r.PathPrefix("/api").Subrouter()
