@@ -1,6 +1,6 @@
 module github.com/michaelpeterswa/aqi-api
 
-go 1.18
+go 1.22
 
 require (
 	676f.dev/goaqi v0.0.0-20220911054535-eea2d5b52e14
