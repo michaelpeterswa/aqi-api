@@ -5,13 +5,13 @@ import (
 	"net/http"
 
 	"676f.dev/goaqi"
-	"github.com/michaelpeterswa/aqi-api/internal/influx"
+	"github.com/michaelpeterswa/aqi-api/internal/timescale"
 	"go.uber.org/zap"
 )
 
 type AQIHandler struct {
-	InfluxClient *influx.InfluxConn
-	Logger       *zap.Logger
+	TimescaleClient *timescale.TimescaleClient
+	Logger          *zap.Logger
 }
 
 type AQIResponse struct {
@@ -29,29 +29,31 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
-func NewAQIHandler(logger *zap.Logger, ic *influx.InfluxConn) *AQIHandler {
+func NewAQIHandler(logger *zap.Logger, tc *timescale.TimescaleClient) *AQIHandler {
 	return &AQIHandler{
-		InfluxClient: ic,
+		TimescaleClient: tc,
 	}
 }
 
 func (h *AQIHandler) GetAQI(w http.ResponseWriter, r *http.Request) {
-	pm25s, err := h.InfluxClient.GetPM25S(r.Context())
+	pm25s, err := h.TimescaleClient.GetPM25S(r.Context())
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		err = json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 		}
+		return
 	}
 
-	pm100s, err := h.InfluxClient.GetPM100S(r.Context())
+	pm100s, err := h.TimescaleClient.GetPM100S(r.Context())
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		err = json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 		}
+		return
 	}
 
 	pm25AQI, err := goaqi.AQIPM25(pm25s)
@@ -61,6 +63,7 @@ func (h *AQIHandler) GetAQI(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 		}
+		return
 	}
 
 	pm100AQI, err := goaqi.AQIPM100(pm100s)
@@ -70,6 +73,7 @@ func (h *AQIHandler) GetAQI(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 		}
+		return
 	}
 
 	var primaryPollutant string
@@ -89,17 +93,19 @@ func (h *AQIHandler) GetAQI(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 		}
+		return
 	}
 	w.WriteHeader(http.StatusOK)
-	
+
 	err = json.NewEncoder(w).Encode(AQIResponse{PrimaryPollutant: primaryPollutant, AQI: aqi, Level: designation})
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
+		return
 	}
 }
 
 func (h *AQIHandler) GetPM25s(w http.ResponseWriter, r *http.Request) {
-	pm25s, err := h.InfluxClient.GetPM25S(r.Context())
+	pm25s, err := h.TimescaleClient.GetPM25S(r.Context())
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		err = json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
@@ -116,13 +122,15 @@ func (h *AQIHandler) GetPM25s(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AQIHandler) GetPM100s(w http.ResponseWriter, r *http.Request) {
-	pm100s, err := h.InfluxClient.GetPM100S(r.Context())
+	pm100s, err := h.TimescaleClient.GetPM100S(r.Context())
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		err = json.NewEncoder(w).Encode(ErrorResponse{Error: err.Error()})
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
+		return
 	}
 
 	w.WriteHeader(http.StatusOK)
