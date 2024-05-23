@@ -3,7 +3,6 @@ package timescale
 import (
 	"context"
 	"fmt"
-	"time"
 
 	_ "embed"
 
@@ -39,7 +38,6 @@ func (tc *TimescaleClient) Close() {
 
 type PM25sRow struct {
 	//lint:ignore U1000 because it's needed for pgx.RowToStructByName
-	Bucket    time.Time
 	Avg_pm25s float64
 }
 
@@ -63,7 +61,6 @@ func (tc *TimescaleClient) GetPM25S(ctx context.Context) (float64, error) {
 
 type PM100sRow struct {
 	//lint:ignore U1000 because it's needed for pgx.RowToStructByName
-	Bucket     time.Time
 	Avg_pm100s float64
 }
 
