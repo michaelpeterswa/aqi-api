@@ -22,7 +22,7 @@ import (
 type Reader interface {
 	ColumnParameters(column string, timeBucket string, lookbackInterval string) timescale.GetColumnTemplateParameters
 	ColumnLastParameters(column string) timescale.GetColumnLastTemplateParameters
-	AQILastParameters(lookbackInterval string) timescale.GetAQILastTemplateParameters
+	AQILastParameters() timescale.GetAQILastTemplateParameters
 	AQIWindowParameters(timeBucket string, lookbackInterval string) timescale.GetAQIWindowTemplateParameters
 	GetColumn(ctx context.Context, tp timescale.GetColumnTemplateParameters) ([]timescale.GetColumnResponse, error)
 	GetColumnLast(ctx context.Context, tp timescale.GetColumnLastTemplateParameters) (*timescale.GetColumnLastResponse, error)
@@ -53,7 +53,7 @@ type MetricSnapshot struct {
 	Windows map[string][]timescale.GetColumnResponse `json:"windows"`
 }
 
-// AQISnapshot is the computed index's precomputed responses.
+// AQISnapshot is the index's precomputed responses.
 type AQISnapshot struct {
 	Last    *timescale.AQILastResponse              `json:"last,omitempty"`
 	Windows map[string][]timescale.AQIPointResponse `json:"windows"`
@@ -113,7 +113,7 @@ func (p *Publisher) Run(ctx context.Context) error {
 		snapshot.Metrics[metric.Name] = ms
 	}
 
-	aqiLast, err := p.Reader.GetAQILast(ctx, p.Reader.AQILastParameters(handlers.AQILookback))
+	aqiLast, err := p.Reader.GetAQILast(ctx, p.Reader.AQILastParameters())
 	if err != nil && !errors.Is(err, timescale.ErrNoData) {
 		return fmt.Errorf("get last aqi: %w", err)
 	}

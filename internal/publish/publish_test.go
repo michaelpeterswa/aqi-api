@@ -21,19 +21,19 @@ type fakeReader struct {
 }
 
 func (f *fakeReader) ColumnParameters(column, timeBucket, lookbackInterval string) timescale.GetColumnTemplateParameters {
-	return timescale.GetColumnTemplateParameters{Table: "sensors.pmsa003i", Column: column, TimeBucket: timeBucket, LookbackInterval: lookbackInterval}
+	return timescale.GetColumnTemplateParameters{Table: "sensors.airgradient", Column: column, TimeBucket: timeBucket, LookbackInterval: lookbackInterval}
 }
 
 func (f *fakeReader) ColumnLastParameters(column string) timescale.GetColumnLastTemplateParameters {
-	return timescale.GetColumnLastTemplateParameters{Table: "sensors.pmsa003i", Column: column}
+	return timescale.GetColumnLastTemplateParameters{Table: "sensors.airgradient", Column: column}
 }
 
-func (f *fakeReader) AQILastParameters(lookbackInterval string) timescale.GetAQILastTemplateParameters {
-	return timescale.GetAQILastTemplateParameters{Table: "sensors.pmsa003i", LookbackInterval: lookbackInterval}
+func (f *fakeReader) AQILastParameters() timescale.GetAQILastTemplateParameters {
+	return timescale.GetAQILastTemplateParameters{AQITable: "sensors.airgradient_aqi"}
 }
 
 func (f *fakeReader) AQIWindowParameters(timeBucket, lookbackInterval string) timescale.GetAQIWindowTemplateParameters {
-	return timescale.GetAQIWindowTemplateParameters{Table: "sensors.pmsa003i", TimeBucket: timeBucket, LookbackInterval: lookbackInterval}
+	return timescale.GetAQIWindowTemplateParameters{AQITable: "sensors.airgradient_aqi", TimeBucket: timeBucket, LookbackInterval: lookbackInterval}
 }
 
 func (f *fakeReader) GetColumn(_ context.Context, tp timescale.GetColumnTemplateParameters) ([]timescale.GetColumnResponse, error) {
@@ -54,16 +54,14 @@ func (f *fakeReader) GetAQILast(_ context.Context, tp timescale.GetAQILastTempla
 		return nil, fmt.Errorf("%w: aqi", timescale.ErrNoData)
 	}
 	return &timescale.AQILastResponse{
-		Time:     time.Unix(1700000060, 0).UTC(),
-		Result:   aqi.Result{AQI: 42, Level: "Good", PrimaryPollutant: aqi.PollutantPM25},
-		PM25Avg:  10,
-		PM100Avg: 12,
+		Time:   time.Unix(1700000060, 0).UTC(),
+		Result: aqi.Result{AQI: 42, Level: "Good", PrimaryPollutant: "PM2.5"},
 	}, nil
 }
 
 func (f *fakeReader) GetAQIWindow(_ context.Context, tp timescale.GetAQIWindowTemplateParameters) ([]timescale.AQIPointResponse, error) {
 	return []timescale.AQIPointResponse{
-		{Time: time.Unix(1700000000, 0).UTC(), Result: aqi.Result{AQI: 42, Level: "Good", PrimaryPollutant: aqi.PollutantPM25}},
+		{Time: time.Unix(1700000000, 0).UTC(), Result: aqi.Result{AQI: 42, Level: "Good", PrimaryPollutant: "PM2.5"}, Min: 40, Max: 45},
 	}, nil
 }
 
@@ -120,7 +118,7 @@ func TestRunPublishesEveryEndpointAndSnapshot(t *testing.T) {
 		t.Errorf("unexpected envelope data %+v", envelope.Data)
 	}
 
-	// the aqi last object flattens the index fields beside time and averages
+	// the aqi last object flattens the index fields beside time
 	aqiData, err := bucket.ReadAll(ctx, "v1/aqi/last.json")
 	if err != nil {
 		t.Fatalf("read aqi/last: %v", err)
@@ -131,7 +129,7 @@ func TestRunPublishesEveryEndpointAndSnapshot(t *testing.T) {
 	if err := json.Unmarshal(aqiData, &aqiEnvelope); err != nil {
 		t.Fatalf("unmarshal aqi envelope: %v", err)
 	}
-	for _, field := range []string{"time", "aqi", "level", "primary_pollutant", "pm25_avg", "pm100_avg"} {
+	for _, field := range []string{"time", "aqi", "level", "primary_pollutant"} {
 		if _, ok := aqiEnvelope.Data[field]; !ok {
 			t.Errorf("expected aqi/last data to carry %q, got %v", field, aqiEnvelope.Data)
 		}
@@ -166,7 +164,7 @@ func TestRunPublishesEveryEndpointAndSnapshot(t *testing.T) {
 	if len(snapshot.AQI.Windows) != len(handlers.Windows) {
 		t.Errorf("aqi: expected %d windows, got %d", len(handlers.Windows), len(snapshot.AQI.Windows))
 	}
-	if snapshot.AQI.Last == nil || snapshot.AQI.Last.AQI != 42 || snapshot.AQI.Last.PrimaryPollutant != aqi.PollutantPM25 {
+	if snapshot.AQI.Last == nil || snapshot.AQI.Last.AQI != 42 || snapshot.AQI.Last.PrimaryPollutant != "PM2.5" {
 		t.Errorf("aqi: unexpected last %+v", snapshot.AQI.Last)
 	}
 

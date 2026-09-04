@@ -5,6 +5,7 @@ FROM
     {{.Table}}
 WHERE
     {{.Column}} IS NOT NULL
+    {{if .SerialNumber}}AND serial_number = '{{.SerialNumber}}'{{end}}
 ORDER BY
     "time" DESC
 LIMIT 1

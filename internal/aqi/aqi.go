@@ -1,17 +1,11 @@
-// Package aqi turns PM2.5 and PM10 concentrations into a US EPA Air Quality
-// Index, so the HTTP handlers and the publisher compute it the same way.
+// Package aqi holds the shape of an Air Quality Index reading and the EPA
+// category lookup, shared by the timescale client and the publisher.
 package aqi
 
 import (
 	"fmt"
-	"math"
 
 	"676f.dev/goaqi"
-)
-
-const (
-	PollutantPM25  = "PM2.5"
-	PollutantPM100 = "PM10.0"
 )
 
 // Result is one AQI reading: the index, its EPA category name, and which
@@ -22,30 +16,12 @@ type Result struct {
 	PrimaryPollutant string `json:"primary_pollutant"`
 }
 
-// Compute returns the AQI for a pair of averaged concentrations in ug/m3.
-// The EPA method truncates PM2.5 to one decimal place before the breakpoint
-// lookup (goaqi truncates PM10 itself); without it an average like 12.05
-// lands in the gap between the 12.0 and 12.1 breakpoints and has no index.
-func Compute(pm25Avg float64, pm100Avg float64) (Result, error) {
-	pm25AQI, err := goaqi.AQIPM25(math.Trunc(pm25Avg*10) / 10)
+// Level returns the EPA category name for an index, for points whose index
+// is an aggregate (a bucket average) rather than a stored row.
+func Level(index int64) (string, error) {
+	level, err := goaqi.AQIDesignationFromIndex(index)
 	if err != nil {
-		return Result{}, fmt.Errorf("aqi for pm2.5 %.2f: %w", pm25Avg, err)
+		return "", fmt.Errorf("designation for aqi %d: %w", index, err)
 	}
-
-	pm100AQI, err := goaqi.AQIPM100(pm100Avg)
-	if err != nil {
-		return Result{}, fmt.Errorf("aqi for pm10 %.2f: %w", pm100Avg, err)
-	}
-
-	result := Result{AQI: pm100AQI, PrimaryPollutant: PollutantPM100}
-	if pm25AQI > pm100AQI {
-		result = Result{AQI: pm25AQI, PrimaryPollutant: PollutantPM25}
-	}
-
-	result.Level, err = goaqi.AQIDesignationFromIndex(result.AQI)
-	if err != nil {
-		return Result{}, fmt.Errorf("designation for aqi %d: %w", result.AQI, err)
-	}
-
-	return result, nil
+	return level, nil
 }

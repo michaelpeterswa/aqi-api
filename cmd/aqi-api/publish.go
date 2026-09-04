@@ -24,7 +24,7 @@ func runPublish(ctx context.Context, c *config.Config) error {
 
 	// No dragonfly here: the publisher wants fresh data, not the API's
 	// response cache, and a cron job should not depend on the cache being up.
-	timescaleClient, err := timescale.NewTimescaleClient(ctx, c.TimescaleDSN, c.TimescaleTable, c.QueryTimeout)
+	timescaleClient, err := timescale.NewTimescaleClient(ctx, c.TimescaleDSN, timescale.Source{Table: c.TimescaleTable, AQITable: c.TimescaleAQITable, SerialNumber: c.SerialNumber}, c.QueryTimeout)
 	if err != nil {
 		return fmt.Errorf("create timescale client: %w", err)
 	}

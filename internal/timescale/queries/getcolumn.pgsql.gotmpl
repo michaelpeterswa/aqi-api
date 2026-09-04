@@ -8,6 +8,7 @@ FROM
 WHERE
     "time" > NOW() - INTERVAL '{{.LookbackInterval}}'
     AND {{.Column}} IS NOT NULL
+    {{if .SerialNumber}}AND serial_number = '{{.SerialNumber}}'{{end}}
 GROUP BY
     1
 ORDER BY
