@@ -3,48 +3,61 @@ package main
 import (
 	"context"
 	"log"
-	"net/http"
+	"log/slog"
 	"os"
 
-	"github.com/gorilla/mux"
-	"github.com/michaelpeterswa/aqi-api/internal/handlers"
+	"github.com/urfave/cli/v3"
+
+	"github.com/michaelpeterswa/aqi-api/internal/config"
 	"github.com/michaelpeterswa/aqi-api/internal/logging"
-	"github.com/michaelpeterswa/aqi-api/internal/timescale"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"go.uber.org/zap"
 )
 
 func main() {
-	ctx := context.Background()
-
-	logger, err := logging.InitZap()
-	if err != nil {
-		log.Panicf("could not acquire zap logger: %s", err.Error())
-	}
-	logger.Info("aqi-api init...")
-
-	timescaleDSN := os.Getenv("TIMESCALE_DSN")
-	if timescaleDSN == "" {
-		logger.Fatal("TIMESCALE_ENDPOINT is required")
+	logLevel := os.Getenv("LOG_LEVEL")
+	if logLevel == "" {
+		logLevel = "error"
 	}
 
-	timescaleClient, timescaleCloser, err := timescale.InitTimescale(ctx, timescaleDSN)
+	slogLevel, err := logging.LogLevelToSlogLevel(logLevel)
 	if err != nil {
-		logger.Fatal("could not initialize timescale client", zap.Error(err))
+		log.Fatalf("could not convert log level: %s", err)
 	}
-	defer timescaleCloser()
-	aqiHandler := handlers.NewAQIHandler(logger, timescaleClient)
 
-	r := mux.NewRouter()
-	apiRouter := r.PathPrefix("/api").Subrouter()
-	apiRouter.HandleFunc("/aqi", aqiHandler.GetAQI).Methods(http.MethodGet)
-	apiRouter.HandleFunc("/pm25s", aqiHandler.GetPM25s).Methods(http.MethodGet)
-	apiRouter.HandleFunc("/pm100s", aqiHandler.GetPM100s).Methods(http.MethodGet)
-	r.HandleFunc("/healthcheck", handlers.HealthcheckHandler)
-	r.Handle("/metrics", promhttp.Handler())
-	http.Handle("/", r)
-	err = http.ListenAndServe(":8080", nil)
-	if err != nil {
-		logger.Fatal("could not start http server", zap.Error(err))
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slogLevel,
+	})))
+
+	cmd := &cli.Command{
+		Name:  "aqi-api",
+		Usage: "serve and publish particulate and AQI data out of TimescaleDB",
+		Commands: []*cli.Command{
+			{
+				Name:  "serve",
+				Usage: "run the HTTP API",
+				Action: func(ctx context.Context, _ *cli.Command) error {
+					c, err := config.NewConfig()
+					if err != nil {
+						return err
+					}
+					return runServe(ctx, c)
+				},
+			},
+			{
+				Name:  "publish",
+				Usage: "compute a snapshot and upload it to the public bucket",
+				Action: func(ctx context.Context, _ *cli.Command) error {
+					c, err := config.NewConfig()
+					if err != nil {
+						return err
+					}
+					return runPublish(ctx, c)
+				},
+			},
+		},
+	}
+
+	if err := cmd.Run(context.Background(), os.Args); err != nil {
+		slog.Error("command failed", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
 }

@@ -1,0 +1,14 @@
+SELECT
+    time_bucket('{{.TimeBucket}}', "time") AS "time",
+    AVG({{.Column}})::float8 AS avg,
+    MIN({{.Column}})::float8 AS min,
+    MAX({{.Column}})::float8 AS max
+FROM
+    {{.Table}}
+WHERE
+    "time" > NOW() - INTERVAL '{{.LookbackInterval}}'
+    AND {{.Column}} IS NOT NULL
+GROUP BY
+    1
+ORDER BY
+    1

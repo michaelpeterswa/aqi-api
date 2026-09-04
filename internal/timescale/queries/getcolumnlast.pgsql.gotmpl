@@ -1,0 +1,10 @@
+SELECT
+    "time",
+    {{.Column}}::float8
+FROM
+    {{.Table}}
+WHERE
+    {{.Column}} IS NOT NULL
+ORDER BY
+    "time" DESC
+LIMIT 1

@@ -1,10 +1,18 @@
 ---
-version: "3.3"
-
 services:
-  main:
+  aqi-api:
     build: .
     ports:
       - "8080:8080"
+      - "8081:8081"
     environment:
       TIMESCALE_DSN: ""
+      DRAGONFLY_HOST: "dragonfly"
+      LOG_LEVEL: "info"
+    depends_on:
+      - dragonfly
+
+  dragonfly:
+    image: "docker.dragonflydb.io/dragonflydb/dragonfly:latest"
+    ulimits:
+      memlock: -1
