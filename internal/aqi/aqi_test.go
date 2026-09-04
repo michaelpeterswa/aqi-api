@@ -2,35 +2,32 @@ package aqi
 
 import "testing"
 
-func TestCompute(t *testing.T) {
+func TestLevel(t *testing.T) {
 	tests := []struct {
 		name    string
-		pm25    float64
-		pm100   float64
-		want    Result
+		index   int64
+		want    string
 		wantErr bool
 	}{
-		{name: "clean air", pm25: 0, pm100: 0, want: Result{AQI: 0, Level: "Good", PrimaryPollutant: PollutantPM100}},
-		{name: "pm2.5 top of good", pm25: 12.0, pm100: 10, want: Result{AQI: 50, Level: "Good", PrimaryPollutant: PollutantPM25}},
-		{name: "pm2.5 in breakpoint gap is truncated", pm25: 12.05, pm100: 10, want: Result{AQI: 50, Level: "Good", PrimaryPollutant: PollutantPM25}},
-		{name: "pm2.5 top of moderate", pm25: 35.4, pm100: 10, want: Result{AQI: 100, Level: "Moderate", PrimaryPollutant: PollutantPM25}},
-		{name: "pm10 dominates", pm25: 5, pm100: 154.9, want: Result{AQI: 100, Level: "Moderate", PrimaryPollutant: PollutantPM100}},
-		{name: "unhealthy for sensitive groups", pm25: 55.4, pm100: 0, want: Result{AQI: 150, Level: "Unhealthy for Sensitive Groups", PrimaryPollutant: PollutantPM25}},
-		{name: "negative concentration", pm25: -1, pm100: 0, wantErr: true},
-		{name: "beyond the scale", pm25: 600, pm100: 0, wantErr: true},
+		{name: "zero", index: 0, want: "Good"},
+		{name: "top of good", index: 50, want: "Good"},
+		{name: "bottom of moderate", index: 51, want: "Moderate"},
+		{name: "sensitive groups", index: 150, want: "Unhealthy for Sensitive Groups"},
+		{name: "unhealthy", index: 151, want: "Unhealthy"},
+		{name: "very unhealthy", index: 300, want: "Very Unhealthy"},
+		{name: "hazardous", index: 500, want: "Hazardous"},
+		{name: "negative", index: -1, wantErr: true},
+		{name: "beyond the scale", index: 501, wantErr: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Compute(tt.pm25, tt.pm100)
+			got, err := Level(tt.index)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("Compute(%v, %v) error = %v, wantErr %v", tt.pm25, tt.pm100, err, tt.wantErr)
-			}
-			if err != nil {
-				return
+				t.Fatalf("Level(%d) error = %v, wantErr %v", tt.index, err, tt.wantErr)
 			}
 			if got != tt.want {
-				t.Errorf("Compute(%v, %v) = %+v, want %+v", tt.pm25, tt.pm100, got, tt.want)
+				t.Errorf("Level(%d) = %q, want %q", tt.index, got, tt.want)
 			}
 		})
 	}

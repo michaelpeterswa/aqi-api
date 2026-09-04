@@ -1,5 +1,6 @@
-// Package timescale reads the PMSA003I particulate series out of TimescaleDB
-// with templated SQL and optionally caches the results in Dragonfly.
+// Package timescale reads the AirGradient series and the inserter's
+// precomputed AQI out of TimescaleDB with templated SQL, and optionally
+// caches the results in Dragonfly.
 package timescale
 
 import (
@@ -9,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
+	"regexp"
 	"strconv"
 	"strings"
 	"text/template"
@@ -30,11 +33,42 @@ import (
 // none, so callers can answer 404 instead of 500.
 var ErrNoData = errors.New("no data")
 
+// Source names the tables to read. Both carry a serial_number column; when
+// SerialNumber is set every query is limited to that monitor.
+type Source struct {
+	// Table holds the raw AirGradient readings.
+	Table string
+	// AQITable holds the inserter's rolling 24 hour AQI rows.
+	AQITable     string
+	SerialNumber string
+}
+
+// Source values are interpolated into SQL templates. They come from the
+// server's configuration, never from request input, but a stray quote in a
+// misconfigured value would still break the query, so they are checked once.
+var (
+	identifierPattern   = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
+	serialNumberPattern = regexp.MustCompile(`^[A-Za-z0-9_-]*$`)
+)
+
+func (s Source) validate() error {
+	if !identifierPattern.MatchString(s.Table) {
+		return fmt.Errorf("invalid table name %q", s.Table)
+	}
+	if !identifierPattern.MatchString(s.AQITable) {
+		return fmt.Errorf("invalid aqi table name %q", s.AQITable)
+	}
+	if !serialNumberPattern.MatchString(s.SerialNumber) {
+		return fmt.Errorf("invalid serial number %q", s.SerialNumber)
+	}
+	return nil
+}
+
 type TimescaleClient struct {
 	Pool *pgxpool.Pool
 	Dfly *dragonfly.DragonflyClient
 
-	table        string
+	source       Source
 	queryTimeout time.Duration
 
 	getColumnTemplate     *template.Template
@@ -55,20 +89,22 @@ var getAQILastTemplate string
 //go:embed queries/getaqiwindow.pgsql.gotmpl
 var getAQIWindowTemplate string
 
-// Template parameters select a table, column and bucketing. The values come
-// from the server-side metric and window tables, never from request input,
-// so they can be interpolated into the SQL templates safely.
+// Template parameters select a table, column and bucketing. Column and window
+// values come from the server-side metric and window tables, never from
+// request input, so they can be interpolated into the SQL templates safely.
 
 type GetColumnTemplateParameters struct {
 	Table            string
+	SerialNumber     string
 	Column           string
 	TimeBucket       string
 	LookbackInterval string
 }
 
 func (t *GetColumnTemplateParameters) String() string {
-	return fmt.Sprintf("%s-%s-%s-%s",
+	return fmt.Sprintf("%s-%s-%s-%s-%s",
 		strings.ReplaceAll(t.Table, " ", ""),
+		t.SerialNumber,
 		strings.ReplaceAll(t.Column, " ", ""),
 		strings.ReplaceAll(t.TimeBucket, " ", ""),
 		strings.ReplaceAll(t.LookbackInterval, " ", ""))
@@ -79,13 +115,15 @@ func (t *GetColumnTemplateParameters) Hash() string {
 }
 
 type GetColumnLastTemplateParameters struct {
-	Table  string
-	Column string
+	Table        string
+	SerialNumber string
+	Column       string
 }
 
 func (t *GetColumnLastTemplateParameters) String() string {
-	return fmt.Sprintf("%s-%s-last",
+	return fmt.Sprintf("%s-%s-%s-last",
 		strings.ReplaceAll(t.Table, " ", ""),
+		t.SerialNumber,
 		strings.ReplaceAll(t.Column, " ", ""))
 }
 
@@ -94,14 +132,14 @@ func (t *GetColumnLastTemplateParameters) Hash() string {
 }
 
 type GetAQILastTemplateParameters struct {
-	Table            string
-	LookbackInterval string
+	AQITable     string
+	SerialNumber string
 }
 
 func (t *GetAQILastTemplateParameters) String() string {
-	return fmt.Sprintf("%s-aqi-%s-last",
-		strings.ReplaceAll(t.Table, " ", ""),
-		strings.ReplaceAll(t.LookbackInterval, " ", ""))
+	return fmt.Sprintf("%s-%s-aqi-last",
+		strings.ReplaceAll(t.AQITable, " ", ""),
+		t.SerialNumber)
 }
 
 func (t *GetAQILastTemplateParameters) Hash() string {
@@ -109,14 +147,16 @@ func (t *GetAQILastTemplateParameters) Hash() string {
 }
 
 type GetAQIWindowTemplateParameters struct {
-	Table            string
+	AQITable         string
+	SerialNumber     string
 	TimeBucket       string
 	LookbackInterval string
 }
 
 func (t *GetAQIWindowTemplateParameters) String() string {
-	return fmt.Sprintf("%s-aqi-%s-%s",
-		strings.ReplaceAll(t.Table, " ", ""),
+	return fmt.Sprintf("%s-%s-aqi-%s-%s",
+		strings.ReplaceAll(t.AQITable, " ", ""),
+		t.SerialNumber,
 		strings.ReplaceAll(t.TimeBucket, " ", ""),
 		strings.ReplaceAll(t.LookbackInterval, " ", ""))
 }
@@ -137,21 +177,21 @@ type GetColumnLastResponse struct {
 	Last float64   `json:"last"`
 }
 
-// AQILastResponse is the current AQI: the index computed from the rolling
-// averages over the lookback, the averages themselves, and the newest reading
-// time that fed them.
+// AQILastResponse is the newest AQI row the inserter wrote: a rolling
+// 24 hour index as of that time.
 type AQILastResponse struct {
 	Time time.Time `json:"time"`
 	aqi.Result
-	PM25Avg  float64 `json:"pm25_avg"`
-	PM100Avg float64 `json:"pm100_avg"`
 }
 
-// AQIPointResponse is the AQI of one time bucket, computed from that bucket's
-// average concentrations.
+// AQIPointResponse is one time bucket of the AQI series. AQI is the bucket's
+// mean index rounded to an integer, Level is that mean's EPA category, and
+// PrimaryPollutant is the pollutant reported most often within the bucket.
 type AQIPointResponse struct {
 	Time time.Time `json:"time"`
 	aqi.Result
+	Min float64 `json:"min"`
+	Max float64 `json:"max"`
 }
 
 type TimescaleClientOption func(*TimescaleClient)
@@ -163,8 +203,12 @@ func WithDragonflyClient(dfly *dragonfly.DragonflyClient) TimescaleClientOption 
 }
 
 // NewTimescaleClient connects to TimescaleDB, pings it, and parses the query
-// templates. table is the schema-qualified hypertable to read.
-func NewTimescaleClient(ctx context.Context, connString string, table string, queryTimeout time.Duration, opts ...TimescaleClientOption) (*TimescaleClient, error) {
+// templates.
+func NewTimescaleClient(ctx context.Context, connString string, source Source, queryTimeout time.Duration, opts ...TimescaleClientOption) (*TimescaleClient, error) {
+	if err := source.validate(); err != nil {
+		return nil, err
+	}
+
 	getColumnTmpl, err := template.New("getColumn").Parse(getColumnTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("parse getColumn template: %w", err)
@@ -210,7 +254,7 @@ func NewTimescaleClient(ctx context.Context, connString string, table string, qu
 
 	c := &TimescaleClient{
 		Pool:                  pool,
-		table:                 table,
+		source:                source,
 		queryTimeout:          queryTimeout,
 		getColumnTemplate:     getColumnTmpl,
 		getColumnLastTemplate: getColumnLastTmpl,
@@ -229,36 +273,39 @@ func (c *TimescaleClient) Close() {
 	c.Pool.Close()
 }
 
-// ColumnParameters fills in the table for a bucketed column query.
+// ColumnParameters fills in the source for a bucketed column query.
 func (c *TimescaleClient) ColumnParameters(column string, timeBucket string, lookbackInterval string) GetColumnTemplateParameters {
 	return GetColumnTemplateParameters{
-		Table:            c.table,
+		Table:            c.source.Table,
+		SerialNumber:     c.source.SerialNumber,
 		Column:           column,
 		TimeBucket:       timeBucket,
 		LookbackInterval: lookbackInterval,
 	}
 }
 
-// ColumnLastParameters fills in the table for a newest-value query.
+// ColumnLastParameters fills in the source for a newest-value query.
 func (c *TimescaleClient) ColumnLastParameters(column string) GetColumnLastTemplateParameters {
 	return GetColumnLastTemplateParameters{
-		Table:  c.table,
-		Column: column,
+		Table:        c.source.Table,
+		SerialNumber: c.source.SerialNumber,
+		Column:       column,
 	}
 }
 
-// AQILastParameters fills in the table for the current-AQI query.
-func (c *TimescaleClient) AQILastParameters(lookbackInterval string) GetAQILastTemplateParameters {
+// AQILastParameters fills in the source for the newest-AQI query.
+func (c *TimescaleClient) AQILastParameters() GetAQILastTemplateParameters {
 	return GetAQILastTemplateParameters{
-		Table:            c.table,
-		LookbackInterval: lookbackInterval,
+		AQITable:     c.source.AQITable,
+		SerialNumber: c.source.SerialNumber,
 	}
 }
 
-// AQIWindowParameters fills in the table for a bucketed AQI query.
+// AQIWindowParameters fills in the source for a bucketed AQI query.
 func (c *TimescaleClient) AQIWindowParameters(timeBucket string, lookbackInterval string) GetAQIWindowTemplateParameters {
 	return GetAQIWindowTemplateParameters{
-		Table:            c.table,
+		AQITable:         c.source.AQITable,
+		SerialNumber:     c.source.SerialNumber,
 		TimeBucket:       timeBucket,
 		LookbackInterval: lookbackInterval,
 	}
@@ -392,8 +439,7 @@ func (c *TimescaleClient) GetColumnLast(ctx context.Context, tp GetColumnLastTem
 	return &response, nil
 }
 
-// GetAQILast computes the AQI from the average concentrations over the
-// lookback interval, which is how the EPA index is defined (a 24 hour mean).
+// GetAQILast returns the newest AQI row.
 func (c *TimescaleClient) GetAQILast(ctx context.Context, tp GetAQILastTemplateParameters) (*AQILastResponse, error) {
 	if cached, ok := cacheGet[AQILastResponse](ctx, c.Dfly, &tp); ok {
 		return &cached, nil
@@ -407,30 +453,29 @@ func (c *TimescaleClient) GetAQILast(ctx context.Context, tp GetAQILastTemplateP
 	queryCtx, cancel := context.WithTimeout(ctx, c.queryTimeout)
 	defer cancel()
 
-	// Aggregates over an empty window come back as one row of NULLs.
+	// level and primary_pollutant are nullable in the schema.
 	var (
-		last     *time.Time
-		pm25Avg  *float64
-		pm100Avg *float64
+		response         AQILastResponse
+		index            float64
+		level            *string
+		primaryPollutant *string
 	)
-	err = c.Pool.QueryRow(queryCtx, query).Scan(&last, &pm25Avg, &pm100Avg)
+	err = c.Pool.QueryRow(queryCtx, query).Scan(&response.Time, &index, &level, &primaryPollutant)
 	if err != nil {
-		return nil, fmt.Errorf("get aqi for the last %s: %w", tp.LookbackInterval, err)
-	}
-	if last == nil || pm25Avg == nil || pm100Avg == nil {
-		return nil, fmt.Errorf("%w: aqi for the last %s", ErrNoData, tp.LookbackInterval)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf("%w: aqi", ErrNoData)
+		}
+		return nil, fmt.Errorf("get last aqi: %w", err)
 	}
 
-	result, err := aqi.Compute(*pm25Avg, *pm100Avg)
-	if err != nil {
-		return nil, fmt.Errorf("compute aqi: %w", err)
+	response.AQI = int64(math.Round(index))
+	if level != nil {
+		response.Level = *level
+	} else if response.Level, err = aqi.Level(response.AQI); err != nil {
+		return nil, err
 	}
-
-	response := AQILastResponse{
-		Time:     *last,
-		Result:   result,
-		PM25Avg:  *pm25Avg,
-		PM100Avg: *pm100Avg,
+	if primaryPollutant != nil {
+		response.PrimaryPollutant = *primaryPollutant
 	}
 
 	cacheSet(ctx, c.Dfly, &tp, response)
@@ -438,8 +483,8 @@ func (c *TimescaleClient) GetAQILast(ctx context.Context, tp GetAQILastTemplateP
 	return &response, nil
 }
 
-// GetAQIWindow returns the AQI of each time bucket over the lookback
-// interval. The slice is never nil so an empty window serializes as [].
+// GetAQIWindow returns the AQI series bucketed over the lookback interval.
+// The slice is never nil so an empty window serializes as [].
 func (c *TimescaleClient) GetAQIWindow(ctx context.Context, tp GetAQIWindowTemplateParameters) ([]AQIPointResponse, error) {
 	if cached, ok := cacheGet[[]AQIPointResponse](ctx, c.Dfly, &tp); ok {
 		return cached, nil
@@ -462,24 +507,28 @@ func (c *TimescaleClient) GetAQIWindow(ctx context.Context, tp GetAQIWindowTempl
 	responses := []AQIPointResponse{}
 	for rows.Next() {
 		var (
-			bucket   time.Time
-			pm25Avg  float64
-			pm100Avg float64
+			point            AQIPointResponse
+			avg              float64
+			primaryPollutant *string
 		)
-		err := rows.Scan(&bucket, &pm25Avg, &pm100Avg)
+		err := rows.Scan(&point.Time, &avg, &point.Min, &point.Max, &primaryPollutant)
 		if err != nil {
 			return nil, fmt.Errorf("scan aqi row: %w", err)
 		}
 
-		result, err := aqi.Compute(pm25Avg, pm100Avg)
+		point.AQI = int64(math.Round(avg))
+		point.Level, err = aqi.Level(point.AQI)
 		if err != nil {
 			// One off-scale bucket (a sensor glitch) should not blank the
 			// whole window.
-			slog.Warn("skipping bucket with no aqi", slog.Time("time", bucket), slog.String("error", err.Error()))
+			slog.Warn("skipping bucket with no aqi level", slog.Time("time", point.Time), slog.String("error", err.Error()))
 			continue
 		}
+		if primaryPollutant != nil {
+			point.PrimaryPollutant = *primaryPollutant
+		}
 
-		responses = append(responses, AQIPointResponse{Time: bucket, Result: result})
+		responses = append(responses, point)
 	}
 	if rows.Err() != nil {
 		return nil, fmt.Errorf("read aqi rows: %w", rows.Err())

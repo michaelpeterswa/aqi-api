@@ -14,9 +14,17 @@ type Config struct {
 
 	TimescaleDSN string `env:"TIMESCALE_DSN,required"`
 
-	// TimescaleTable is the schema-qualified hypertable holding the PMSA003I
-	// readings (time, pm25s, pm100s).
-	TimescaleTable string `env:"TIMESCALE_TABLE" envDefault:"sensors.pmsa003i"`
+	// TimescaleTable is the schema-qualified hypertable holding the AirGradient
+	// readings, as written by airgradient-timescaledb-inserter.
+	TimescaleTable string `env:"TIMESCALE_TABLE" envDefault:"sensors.airgradient"`
+
+	// TimescaleAQITable holds the inserter's precomputed AQI rows: a rolling
+	// 24 hour index written every scrape.
+	TimescaleAQITable string `env:"TIMESCALE_AQI_TABLE" envDefault:"sensors.airgradient_aqi"`
+
+	// SerialNumber limits both tables to one monitor. Leave unset when the
+	// inserter only scrapes one.
+	SerialNumber string `env:"SERIAL_NUMBER"`
 
 	// QueryTimeout bounds one query against TimescaleDB.
 	QueryTimeout time.Duration `env:"QUERY_TIMEOUT" envDefault:"10s"`

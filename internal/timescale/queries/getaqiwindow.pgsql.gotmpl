@@ -1,13 +1,15 @@
 SELECT
     time_bucket('{{.TimeBucket}}', "time") AS "time",
-    AVG(pm25s)::float8 AS pm25_avg,
-    AVG(pm100s)::float8 AS pm100_avg
+    AVG(aqi)::float8 AS avg,
+    MIN(aqi)::float8 AS min,
+    MAX(aqi)::float8 AS max,
+    mode() WITHIN GROUP (ORDER BY primary_pollutant) AS primary_pollutant
 FROM
-    {{.Table}}
+    {{.AQITable}}
 WHERE
     "time" > NOW() - INTERVAL '{{.LookbackInterval}}'
-    AND pm25s IS NOT NULL
-    AND pm100s IS NOT NULL
+    AND aqi IS NOT NULL
+    {{if .SerialNumber}}AND serial_number = '{{.SerialNumber}}'{{end}}
 GROUP BY
     1
 ORDER BY

@@ -1,10 +1,13 @@
 SELECT
-    MAX("time") AS "time",
-    AVG(pm25s)::float8 AS pm25_avg,
-    AVG(pm100s)::float8 AS pm100_avg
+    "time",
+    aqi::float8,
+    level,
+    primary_pollutant
 FROM
-    {{.Table}}
+    {{.AQITable}}
 WHERE
-    "time" > NOW() - INTERVAL '{{.LookbackInterval}}'
-    AND pm25s IS NOT NULL
-    AND pm100s IS NOT NULL
+    aqi IS NOT NULL
+    {{if .SerialNumber}}AND serial_number = '{{.SerialNumber}}'{{end}}
+ORDER BY
+    "time" DESC
+LIMIT 1

@@ -1,6 +1,6 @@
 # AQI API
 
-An HTTP API and snapshot publisher that serves particulate readings and the US EPA Air Quality Index out of TimescaleDB, so other applications can show air quality without writing SQL. Reads the `sensors.pmsa003i` hypertable (a PMSA003I sensor's `pm25s` and `pm100s` columns) and computes the index with [goaqi](https://github.com/michaelpeterswa/goaqi). Structure modeled on [tempest-influxdb-api](https://github.com/michaelpeterswa/tempest-influxdb-api).
+An HTTP API and snapshot publisher that serves AirGradient air quality readings and the US EPA Air Quality Index out of TimescaleDB, so other applications can show air quality without writing SQL. Pairs with [airgradient-timescaledb-inserter](https://github.com/michaelpeterswa/airgradient-timescaledb-inserter), which scrapes the monitor into `sensors.airgradient` and writes a rolling 24 hour AQI to `sensors.airgradient_aqi` every minute. Structure modeled on [tempest-influxdb-api](https://github.com/michaelpeterswa/tempest-influxdb-api).
 
 ## Commands
 
@@ -16,15 +16,27 @@ For each raw metric below:
 - `GET /api/v1/{metric}/last` — newest value: `{"time": ..., "last": ...}`
 - `GET /api/v1/{metric}/{window}` — bucketed history: `[{"time": ..., "min": ..., "max": ..., "avg": ...}, ...]`
 
-| Metric  | TimescaleDB Column | Unit  |
-|---------|--------------------|-------|
-| `pm25`  | `pm25s`            | µg/m³ |
-| `pm100` | `pm100s`           | µg/m³ |
+| Metric                    | AirGradient Column | Unit       |
+|---------------------------|--------------------|------------|
+| `pm1`                     | `pm01`             | µg/m³      |
+| `pm25`                    | `pm02`             | µg/m³      |
+| `pm100`                   | `pm10`             | µg/m³      |
+| `pm003_count`             | `pm003_count`      | count/dL   |
+| `co2`                     | `rco2`             | ppm        |
+| `temperature`             | `atmp`             | °C         |
+| `temperature_compensated` | `atmp_compensated` | °C         |
+| `humidity`                | `rhum`             | %          |
+| `humidity_compensated`    | `rhum_compensated` | %          |
+| `tvoc_index`              | `tvoc_index`       | index      |
+| `tvoc_raw`                | `tvoc_raw`         | raw        |
+| `nox_index`               | `nox_index`        | index      |
+| `nox_raw`                 | `nox_raw`          | raw        |
+| `wifi`                    | `wifi`             | dBm        |
 
-The computed index has the same route shape:
+The index has the same route shape, read from the inserter's `airgradient_aqi` table where every row is a rolling 24 hour AQI:
 
-- `GET /api/v1/aqi/last` — AQI from the 24 hour average concentrations, which is how the EPA defines the index: `{"time": ..., "aqi": ..., "level": ..., "primary_pollutant": ..., "pm25_avg": ..., "pm100_avg": ...}`. `time` is the newest reading in the window.
-- `GET /api/v1/aqi/{window}` — AQI of each bucket, from that bucket's average concentrations: `[{"time": ..., "aqi": ..., "level": ..., "primary_pollutant": ...}, ...]`
+- `GET /api/v1/aqi/last` — the newest row: `{"time": ..., "aqi": ..., "level": ..., "primary_pollutant": ...}`
+- `GET /api/v1/aqi/{window}` — the series bucketed: `[{"time": ..., "aqi": ..., "level": ..., "primary_pollutant": ..., "min": ..., "max": ...}, ...]`. `aqi` is the bucket's mean index rounded, `level` its EPA category, and `primary_pollutant` the pollutant reported most often in the bucket.
 
 Windows and their bucket sizes: `12h` (30m), `24h` (1h), `7d` (6h), `30d` (1d), `90d` (1d).
 
@@ -37,7 +49,9 @@ All configuration is via environment variables.
 | Environment Variable      | Description                                        | Required | Default              |
 |---------------------------|----------------------------------------------------|----------|----------------------|
 | `TIMESCALE_DSN`           | PostgreSQL / TimescaleDB connection string         | Yes      | -                    |
-| `TIMESCALE_TABLE`         | Schema-qualified hypertable to read                | No       | `sensors.pmsa003i`   |
+| `TIMESCALE_TABLE`         | Schema-qualified AirGradient readings table        | No       | `sensors.airgradient` |
+| `TIMESCALE_AQI_TABLE`     | Schema-qualified AQI table                         | No       | `sensors.airgradient_aqi` |
+| `SERIAL_NUMBER`           | Limit both tables to one monitor's serial number   | No       | -                    |
 | `QUERY_TIMEOUT`           | Timeout for one database query                     | No       | `10s`                |
 | `DRAGONFLY_HOST`          | Dragonfly (or Redis) host; enables response caching for `serve` when set | No | -      |
 | `DRAGONFLY_PORT`          | Dragonfly port                                     | No       | `6379`               |
@@ -85,10 +99,10 @@ services:
 
 ```console
 $ curl -s localhost:8080/api/v1/aqi/last
-{"time":"2026-09-04T19:37:00Z","aqi":42,"level":"Good","primary_pollutant":"PM2.5","pm25_avg":10.1,"pm100_avg":12.4}
+{"time":"2026-09-04T19:37:00Z","aqi":42,"level":"Good","primary_pollutant":"PM2.5"}
 
 $ curl -s localhost:8080/api/v1/pm25/24h
-[{"time":"2026-09-04T00:00:00Z","min":8,"max":14,"avg":10.5}, ...]
+[{"time":"2026-09-04T00:00:00Z","min":8.1,"max":14.3,"avg":10.5}, ...]
 ```
 
 ### Publish to a local directory

@@ -9,16 +9,29 @@ import (
 	"github.com/michaelpeterswa/aqi-api/internal/timescale"
 )
 
-// Metric maps an API metric name to its TimescaleDB column.
+// Metric maps an API metric name to its column in the AirGradient table.
 type Metric struct {
 	Name   string
 	Column string
 }
 
-// Metrics is the set of raw particulate columns the API serves, in route order.
+// Metrics is the set of AirGradient readings the API serves, in route order.
+// Diagnostic columns (boot counts, firmware, model) are left out.
 var Metrics = []Metric{
-	{Name: "pm25", Column: "pm25s"},
-	{Name: "pm100", Column: "pm100s"},
+	{Name: "pm1", Column: "pm01"},
+	{Name: "pm25", Column: "pm02"},
+	{Name: "pm100", Column: "pm10"},
+	{Name: "pm003_count", Column: "pm003_count"},
+	{Name: "co2", Column: "rco2"},
+	{Name: "temperature", Column: "atmp"},
+	{Name: "temperature_compensated", Column: "atmp_compensated"},
+	{Name: "humidity", Column: "rhum"},
+	{Name: "humidity_compensated", Column: "rhum_compensated"},
+	{Name: "tvoc_index", Column: "tvoc_index"},
+	{Name: "tvoc_raw", Column: "tvoc_raw"},
+	{Name: "nox_index", Column: "nox_index"},
+	{Name: "nox_raw", Column: "nox_raw"},
+	{Name: "wifi", Column: "wifi"},
 }
 
 // Window is one lookback tier with its bucket size, both as Postgres
@@ -39,13 +52,10 @@ var Windows = []Window{
 	{Name: "90d", LookbackInterval: "90 days", TimeBucket: "1 day"},
 }
 
-// AQIName is the route segment for the computed index; it sits beside the
-// raw metrics but is derived from both of them.
+// AQIName is the route segment for the index. It sits beside the raw metrics
+// but comes from the inserter's AQI table, where every row is a rolling
+// 24 hour index.
 const AQIName = "aqi"
-
-// AQILookback is the averaging period behind /aqi/last. The EPA index is
-// defined on a 24 hour mean concentration.
-const AQILookback = "24 hours"
 
 type AQIHandler struct {
 	timescaleClient *timescale.TimescaleClient
@@ -85,10 +95,10 @@ func (h *AQIHandler) GetColumnLast(metric Metric) http.HandlerFunc {
 	}
 }
 
-// GetAQILast returns the handler for the current AQI.
+// GetAQILast returns the handler for the newest AQI row.
 func (h *AQIHandler) GetAQILast() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		value, err := h.timescaleClient.GetAQILast(r.Context(), h.timescaleClient.AQILastParameters(AQILookback))
+		value, err := h.timescaleClient.GetAQILast(r.Context(), h.timescaleClient.AQILastParameters())
 		if err != nil {
 			writeProblem(w, r, statusFor(err),
 				"failed to get last aqi",
@@ -100,7 +110,7 @@ func (h *AQIHandler) GetAQILast() http.HandlerFunc {
 	}
 }
 
-// GetAQIWindow returns the handler for the bucketed AQI of one window tier.
+// GetAQIWindow returns the handler for the AQI series of one window tier.
 func (h *AQIHandler) GetAQIWindow(window Window) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		values, err := h.timescaleClient.GetAQIWindow(r.Context(), h.timescaleClient.AQIWindowParameters(window.TimeBucket, window.LookbackInterval))

@@ -63,7 +63,7 @@ func runServe(ctx context.Context, c *config.Config) error {
 		slog.Info("DRAGONFLY_HOST not set, serving uncached")
 	}
 
-	timescaleClient, err := timescale.NewTimescaleClient(ctx, c.TimescaleDSN, c.TimescaleTable, c.QueryTimeout, timescaleOpts...)
+	timescaleClient, err := timescale.NewTimescaleClient(ctx, c.TimescaleDSN, timescale.Source{Table: c.TimescaleTable, AQITable: c.TimescaleAQITable, SerialNumber: c.SerialNumber}, c.QueryTimeout, timescaleOpts...)
 	if err != nil {
 		return fmt.Errorf("create timescale client: %w", err)
 	}

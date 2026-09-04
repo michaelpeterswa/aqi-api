@@ -25,8 +25,14 @@ func TestNewConfigDefaults(t *testing.T) {
 	if cfg.Port != 8080 {
 		t.Errorf("expected default port 8080, got %d", cfg.Port)
 	}
-	if cfg.TimescaleTable != "sensors.pmsa003i" {
-		t.Errorf("expected default table 'sensors.pmsa003i', got %q", cfg.TimescaleTable)
+	if cfg.TimescaleTable != "sensors.airgradient" {
+		t.Errorf("expected default table 'sensors.airgradient', got %q", cfg.TimescaleTable)
+	}
+	if cfg.TimescaleAQITable != "sensors.airgradient_aqi" {
+		t.Errorf("expected default aqi table 'sensors.airgradient_aqi', got %q", cfg.TimescaleAQITable)
+	}
+	if cfg.SerialNumber != "" {
+		t.Errorf("expected serial number unset by default, got %q", cfg.SerialNumber)
 	}
 	if cfg.QueryTimeout != 10*time.Second {
 		t.Errorf("expected default query timeout 10s, got %v", cfg.QueryTimeout)
@@ -72,6 +78,7 @@ func TestNewConfigOverrides(t *testing.T) {
 	t.Setenv("API_KEYS", "key-one,key-two")
 	t.Setenv("AUTHENTICATION_ENABLED", "true")
 	t.Setenv("PUBLISH_BUCKET_URL", "file:///tmp/out")
+	t.Setenv("SERIAL_NUMBER", "84fce6070dd4")
 
 	cfg, err := NewConfig()
 	if err != nil {
@@ -89,6 +96,9 @@ func TestNewConfigOverrides(t *testing.T) {
 	}
 	if cfg.PublishBucketURL != "file:///tmp/out" {
 		t.Errorf("expected publish bucket url 'file:///tmp/out', got %q", cfg.PublishBucketURL)
+	}
+	if cfg.SerialNumber != "84fce6070dd4" {
+		t.Errorf("expected serial number '84fce6070dd4', got %q", cfg.SerialNumber)
 	}
 }
 
